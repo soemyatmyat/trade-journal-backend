@@ -1,0 +1,31 @@
+#Ignore Mac System files
+.DS_store 
+
+#Ignore these folders
+__pycache__
+venv
+specifications
+
+#Ignore environment files
+*.env 
+
+#Ignore all text files
+*.txt 
+
+#Ignore SASS config files
+.sass-cache
+
+#Ignore the log files
+*.log
+
+#Ignore images
+*.png
+*.jpg
+
+#Ignore verbal
+.vercel
+
+#Ignore these files
+schema.sql
+init_db.py
+sql_app.db
