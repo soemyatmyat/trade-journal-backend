@@ -9,9 +9,6 @@ specifications
 #Ignore environment files
 *.env 
 
-#Ignore all text files
-*.txt 
-
 #Ignore SASS config files
 .sass-cache
 
