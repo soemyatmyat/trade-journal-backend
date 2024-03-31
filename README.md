@@ -4,13 +4,11 @@ Trade journal for recording your trading activites. It's now always easy to trac
 ## Iteration 0
 - [X] UI Design Mockup 
 - [X] SQLArchemy ORM + Pydamtic Schema Design 
-- [X]  
-
 
 ## Iteration 0.1
 - [X] User OAuth (JWT Token: Bearer)
-- [X] Fast REST API (CRUD trade positions) 
-- [X] FAST REST API (fetch last closing price from yahoo finance for trade positions) 
+- [X] Fast RESTful APIs (CRUD trade positions) 
+- [X] FAST RESTful APIs (fetch last closing price from yahoo finance for trade positions) 
 
 ## Iteration 0.2
 - [ ] Revisit authentication flow of tokens
@@ -18,15 +16,13 @@ Trade journal for recording your trading activites. It's now always easy to trac
 - [ ] Revisit User authorization 
 
 
-## API Documments: 
-Interactive API docs:
-http://127.0.0.1:8000/docs (by Swagger UI)
-http://127.0.0.1:8000/redoc (by ReDoc)
-
+## Interactive API Documments: 
+- http://127.0.0.1:8000/docs (by Swagger UI)
+- http://127.0.0.1:8000/redoc (by ReDoc)
 
 
 ## References 
-
+-
 
 ## Why FastAPI?
 - Uses Starlette and Pydantic (validation, serializaiton/deserialization) under the hood for blazing-fast performance.
