@@ -45,6 +45,3 @@ In HTTP there are two ways to POST data:
 - Uses Starlette and Pydantic (validation, serializaiton/deserialization) under the hood for blazing-fast performance.
 - Minimizes boilerplate with a simple declaration of routes and inputs.
 - Automatic generation of OpenAPI schemas and docs.
-
-C#, ASP.NET Core
-https://imgur.com/a/I39iPm1
