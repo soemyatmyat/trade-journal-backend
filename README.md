@@ -12,7 +12,7 @@ Trade journal for recording trading activites. It has never been easy to track y
 - [X] Setup CI/CD 
 
 ## Iteration 0.2
-- [ ] Revisit authentication flow of tokens (Register, Logout, Refresh Token)
+- [X] Revisit authentication flow of tokens (Register, Logout, Refresh Token)
 - [ ] Query Optimization 
 - [ ] Revisit User authorization 
 - [ ] 
