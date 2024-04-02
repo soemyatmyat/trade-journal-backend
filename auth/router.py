@@ -18,8 +18,7 @@ async def register_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends(
             detail="Email already registered."
         )
     new_user = schema.UserCreate(email=username, password=password)
-    created_user = service.create_user(db, user=new_user)    
-    print(created_user) # can just print out user registers succesfully on the interface (no email click link for validation for now)
+    service.create_user(db, user=new_user)    
 
 @router.post("/token", response_model=schema.Token, tags=["users"], include_in_schema=False) # return bearer token
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session=Depends(get_db)) -> schema.Token:
@@ -33,6 +32,18 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
     access_token = utils.create_access_token(data={"sub": user.email})
     return schema.Token(access_token=access_token, token_type="bearer") # return token
 
+@router.post("/logout")
+async def logout(token: str = Depends(service.oauth2_scheme)):
+    # revoke the token access (it will expire in default: 15 mins anyway)
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    token_data=utils.decode_access_token(token)
+    if token_data is None:
+        raise credentials_exception
+    utils.revoke_token(token)
 
 '''
 token validaition is taken care of by oauth2_scheme for invalid token or expired token. otherwise, would need to do this 
@@ -51,8 +62,8 @@ Authorization: Bearer <token>
     else:
         raise HTTPException(status_code=403, detail="Invalid authorization code.")
 '''
-# this function will be called for authorization: @app.get("/protected")
-
+# this function will be called for authorization, similar to @app.get("/protected")
+# but this is faciliated with FastAPI, Depends(get_current_user)
 @router.post("/get_user_id", response_model=schema.UserId, tags=["users"], include_in_schema=False)
 async def get_current_user(token: Annotated[str, Depends(service.oauth2_scheme)], db: Session=Depends(get_db)):
     credentials_exception = HTTPException(

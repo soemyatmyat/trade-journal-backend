@@ -22,7 +22,12 @@ def get_position_by_id(db: Session, id: int):
     return db.query(models.Position).filter(models.Position.id == id).first()
 
 def retrieve_positions(db: Session, user_id: int, skip: int = 0, limit: int = 100):
-    return db.query(models.Position).filter(models.Position.owner_id == user_id).offset(skip).limit(limit).all()
+    return db.query(models.Position)\
+             .filter(models.Position.owner_id == user_id)\
+             .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
+             .offset(skip)\
+             .limit(limit)\
+             .all()
 
 def update_position_by_id(db: Session, position_id: int, position: schemas.Position):
     existing_position = get_position_by_id(db, position_id)

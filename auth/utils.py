@@ -1,13 +1,9 @@
 from datetime import datetime, timedelta, timezone 
 from jose import JWTError, jwt
 from . import schema
+import settings
 
-# to get a string like this run: # this goes into .env config
-# openssl rand -hex 32
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
+BLACKLIST = set()
 
 # jwt is based64 encoded. anyone can decode the token and use its data. But only the server can verify it's authenticity using the JWT_SECRET
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
@@ -16,15 +12,21 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=15) # default 15 mins 
-    to_encode.update({"exp":expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    to_encode.update({"exp":expire}) # to_encode={"sub": user.email, "exp": expire}
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
+def revoke_token(token: str):
+    BLACKLIST.add(token)
+
 def decode_access_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        token_data = schema.TokenData(username=username)
-    except JWTError: # when will this be triggered??
-        return None
-    return token_data 
+    if (token not in BLACKLIST):
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            username: str = payload.get("sub")
+            token_data = schema.TokenData(username=username)
+        except JWTError: # when will this be triggered??
+            return None
+        return token_data 
+    return None
+
