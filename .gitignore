@@ -24,5 +24,4 @@ specifications
 
 #Ignore these files
 schema.sql
-init_db.py
 sql_app.db
