@@ -5,6 +5,7 @@ from auth.router import router as auth_router
 from tickers.router import router as ticker_router
 from positions.router import router as pos_router
 from database import engine, Base
+import testing.init_db as init_db
 
 app = FastAPI()
 origins = ["*"]
@@ -25,4 +26,6 @@ async def redirect_to_docs():
 app.include_router(auth_router, prefix="/auth")
 app.include_router(pos_router, prefix="/positions")
 app.include_router(ticker_router, prefix="/tickers")
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine) 
+# load test data (render is redeploying everything)
+init_db.initialize_data()

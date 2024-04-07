@@ -8,7 +8,7 @@ from . import service, schema, utils
 
 router = APIRouter() # need to import this to main.py
 
-@router.post("/register", tags=["users"], include_in_schema=True)
+@router.post("/register", tags=["users"], include_in_schema=False)
 async def register_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session=Depends(get_db)):
     username, password = form_data.username, form_data.password 
     existing_user = service.get_user_by_email(db, email=username)
@@ -32,9 +32,9 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
     access_token = utils.create_access_token(data={"sub": user.email})
     return schema.Token(access_token=access_token, token_type="bearer") # return token
 
-@router.post("/logout")
+@router.post("/logout", include_in_schema=False) 
 async def logout(token: str = Depends(service.oauth2_scheme)):
-    # revoke the token access (it will expire in default: 15 mins anyway)
+    # revoke the token access (it will expire by default in 15 mins anyway)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

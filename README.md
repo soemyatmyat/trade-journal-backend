@@ -14,7 +14,7 @@ Trade journal for recording trading activites. It has never been easy to track y
 ## Iteration 0.2
 - [X] Revisit authentication flow of tokens (Register, Logout, Refresh Token)
 - [ ] Query Optimization 
-- [ ] Revisit User authorization 
+- [ ] 
 - [ ] 
 
 ## Interactive API Documments: 

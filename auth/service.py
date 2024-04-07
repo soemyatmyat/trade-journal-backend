@@ -28,7 +28,7 @@ def create_user(db: Session, user: schema.UserCreate):
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    # return db_user # what does it return??
+    return db_user # what does it return??
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
