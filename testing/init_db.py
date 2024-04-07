@@ -39,27 +39,3 @@ def initialize_data():
       db_position = positions_service.create_position(session, db_position)
 
   session.close() # close the instance 
-
-
-
-
-
-
-
-  # # positions
-  # positions = load_json('fake_positions.json')
-  # for position in positions:
-  #   db_position = position_model.Position(
-  #     ticker = position.ticker,
-  #     category = position.category,
-  #     qty = position.qty,
-  #     option_price = position.option_price,
-  #     trade_price = position.trade_price,
-  #     open_date = position.open_date,
-  #     close_date = position.close_date,
-  #     closed_price = position.closed_price,
-  #     owner_id = db_user.id
-  #   )
-  #   db.add(db_position)
-  # db.commit()
-  # db.close()
