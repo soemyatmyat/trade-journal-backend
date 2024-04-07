@@ -13,13 +13,13 @@ Trade journal for recording trading activites. It has never been easy to track y
 
 ## Iteration 0.2
 - [X] Revisit authentication flow of tokens (Register, Logout, Refresh Token)
+- [X] Add test data for render
 - [ ] Query Optimization 
-- [ ] 
-- [ ] 
+
 
 ## Interactive API Documments: 
-- http://127.0.0.1:8000/docs (by Swagger UI)
-- http://127.0.0.1:8000/redoc (by ReDoc)
+- http://{localhost}:{port}/docs (by Swagger UI)
+- http://{localhost}:{port}/redoc (by ReDoc)
 
 
 ## References 
