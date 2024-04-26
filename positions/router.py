@@ -34,10 +34,13 @@ async def add_position(position: schemas.Position,
         raise HTTPException(status_code=404, detail=str(error))
     return service.orm_to_pydantic(new_position)
 
-# READ 
+# READ ALL
 @router.get("/", response_model=list[schemas.Position_Details], tags=["positions"])
 async def retrieve_positions(current_user: user_schema.UserId = Depends(get_current_user),db: Session=Depends(get_db)):
     positions = service.retrieve_positions(db, current_user.id) # limit and offset incorporated.
+    # print("Retrieve positions: ")
+    # for p in positions:
+    #     print(str(p))
     return [service.orm_to_pydantic(p) for p in positions] 
 
 # READ 

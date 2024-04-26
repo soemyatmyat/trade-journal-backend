@@ -8,7 +8,7 @@ from database import engine, Base
 import testing.init_db as init_db
 
 app = FastAPI()
-origins = ["*"]
+origins = ["*"] # this need to be changed later, to only allow whitelisted IPs 
 
 # Configure CORS
 app.add_middleware(

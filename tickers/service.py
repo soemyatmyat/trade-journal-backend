@@ -2,6 +2,7 @@ from . import schemas, models
 from sqlalchemy.orm import Session 
 from datetime import datetime
 import yfinance as yf
+import pandas as pd
 
 def get_ticker(db: Session, ticker: str):
     return db.query(models.Ticker).filter(models.Ticker.ticker==ticker).first()
@@ -9,14 +10,14 @@ def get_ticker(db: Session, ticker: str):
 def update_ticker(db: Session, ticker: schemas.TickerCreate):
     existing_ticker = get_ticker(db, ticker.ticker)
     if not existing_ticker:
-        db_ticker = models.Ticker(ticker=ticker.ticker, closed_price=ticker.closed_price, closed_date=datetime.today().date())
+        db_ticker = models.Ticker(ticker=ticker.ticker, closed_price=ticker.closed_price, fetched_date=datetime.today().date())
         db.add(db_ticker)
         db.commit()
         db.refresh(db_ticker)
         return db_ticker 
     else: # update if  existing
         existing_ticker.closed_price = ticker.closed_price
-        existing_ticker.closed_date = datetime.today().date()
+        existing_ticker.fetched_date = datetime.today().date()
         db.commit()
         db.refresh(db_ticker)
         return existing_ticker
@@ -32,13 +33,32 @@ def get_closed_price(db: Session, ticker_id: int):
         else:
             existing_ticker = update_ticker(db, schemas.TickerCreate(ticker=ticker_id, closed_price=closed_price.iloc[-1]))   
 
-    return schemas.Ticker(ticker=existing_ticker.ticker, closed_price= existing_ticker.closed_price, closed_date=existing_ticker.closed_date)
+    return schemas.Ticker(ticker=existing_ticker.ticker, closed_price= existing_ticker.closed_price, fetched_date=existing_ticker.fetched_date)
+
+def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str):
+    # download historical price data 
+    data = yf.download(ticker, start_date, end_date)["Adj Close"].round(2)
+    # resample data to the specified frequency
+    weekstarts = data.resample(frequency).last()
+    weekends = weekstarts.shift(-1)
+    # compute weekly returns
+    weekly_ret_diff = (weekends - weekstarts)
+    weekly_ret_change = weekly_ret_diff / weekstarts
+    # prep data format 
+    df = pd.DataFrame(weekends)
+    df["prev"] = weekstarts
+    df["diff"] = weekly_ret_diff.round(2)
+    df["percentage"] = (weekly_ret_change * 100).round(2)
+    df.reset_index(inplace=True)
+    df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
+    df = df.sort_values(by='Date', ascending=False) 
+    df.dropna(inplace=True)
+    return df.to_dict(orient='records') # return in dict/json form 
 
 def get_option_by_id(db: Session, option_id: str):
     return db.query(models.Option).filter(models.Option.id == option_id).first()
 
 def get_option(db: Session, option:schemas.Option):
-    print("Getting optin from db: ", option);
     return db.query(models.Option).filter(
         models.Option.ticker == option.ticker, 
         models.Option.strike_price == option.strike_price, 
@@ -64,7 +84,6 @@ def update_option(db:Session, option: schemas.Option_Details):
 def get_option_price(db: Session, option: schemas.Option):
     existing_option = get_option(db, option)
     if not existing_option:
-        print("OPtion is ", option)
         data = yf.Ticker(option.ticker) 
         try: 
             option_chain_data = data.option_chain(str(option.expire_date))
@@ -91,9 +110,7 @@ def get_option_price(db: Session, option: schemas.Option):
                 return None 
             return db_option 
         except Exception as error:
-            print("Error in get_option_price: ", error)
             raise error 
-    print("Option is ", existing_option)
     return existing_option
 
 # run cron jobs to update all tickers + options every weekday at 10 pm (expired options should be removed from database)
@@ -113,7 +130,7 @@ def update_all_tickers(db: Session, batch_size: int = 100):
                     pass # need to log
                 else:
                     ticker.closed_price = closed_price.iloc[-1]
-                    ticker.closed_date = datetime.today().date()
+                    ticker.fetched_date = datetime.today().date()
             except Exception as e:
                 pass # logging 
         db.commit()
@@ -135,8 +152,6 @@ def update_all_options(db: Session, batch_size: int = 100):
                     options_chain = option_chain_data.calls 
                 else:
                     options_chain = option_chain_data.puts 
-                print("option_id: ", option.id)
-                print("from yf: ", options_chain['contractSymbol'].values[0])
                 option_data = options_chain[options_chain['contractSymbol'] == option.id]
                 option.bid = option_data['bid'].values[0]
                 option.ask = option_data['ask'].values[0]

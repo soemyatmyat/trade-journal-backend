@@ -7,7 +7,7 @@ class Position(Base):
     __tablename__ = "positions"
 
     id = Column(Integer, primary_key=True)
-    category = Column(Enum('Long', 'Short', 'Call','Put')) # would be better to separate as a new model maybe
+    category = Column(Enum('Long', 'Short', 'Call','Put')) 
     ticker = Column(String, ForeignKey("tickers.ticker")) 
     qty = Column(Integer, default = 100)
     option_price = Column(Float, default=0)
@@ -22,4 +22,5 @@ class Position(Base):
     owner = relationship("User", back_populates="positions")
     ticker_belongs_to = relationship("Ticker", back_populates="positions")
 
-
+    def __str__(self):
+        return f"Position ID: {self.id}, Category: {self.category}, ticker: {self.ticker}, option_price: {self.option_price}, Open Date: {self.open_date}, Close Date: {self.close_date}, Is Active: {self.is_active}, Closed Price: {self.closed_price}"

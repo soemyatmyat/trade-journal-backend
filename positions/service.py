@@ -1,5 +1,6 @@
 from . import schemas, models 
 from sqlalchemy.orm import Session 
+from datetime import datetime
 
 def create_position(db: Session, position: schemas.Position_Create):
     db_position = models.Position( # convert from schemas pydametic to orm model 
@@ -22,6 +23,22 @@ def get_position_by_id(db: Session, id: int):
     return db.query(models.Position).filter(models.Position.id == id).first()
 
 def retrieve_positions(db: Session, user_id: int, skip: int = 0, limit: int = 100):
+    positions = db.query(models.Position)\
+             .filter(models.Position.owner_id == user_id)\
+             .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
+             .offset(skip)\
+             .limit(limit)\
+             .all()
+
+    #options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put') and position.close_date < datetime.today().date()]
+    options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put')]
+    if options_positions:
+        # update the option position as it has already expired
+        for p in options_positions:
+            p.is_active = False 
+            p.closed_price = 0
+        db.commit()
+
     return db.query(models.Position)\
              .filter(models.Position.owner_id == user_id)\
              .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
@@ -58,7 +75,7 @@ def orm_to_pydantic(position) -> schemas.Position_Details:
         trade_price=position.trade_price,
         open_date=position.open_date,
         close_date=position.close_date,
-        close_price=position.closed_price,
+        closed_price=position.closed_price,
         remark=position.remark,
         is_active=position.is_active
     )

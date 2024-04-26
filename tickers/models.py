@@ -9,7 +9,7 @@ class Ticker(Base):
 
     ticker = Column(String, primary_key=True)
     closed_price = Column(Float)
-    closed_date = Column(Date, default=date.today)
+    fetched_date = Column(Date, default=date.today)
 
     positions = relationship("Position", back_populates="ticker_belongs_to")
     options = relationship("Option", back_populates="ticker_of")
@@ -27,6 +27,7 @@ class Option(Base):
     volume = Column(Float)
     iv = Column(Float)
     itm = Column(Boolean)
+    fetched_date = Column(Date, default=date.today)
 
     ticker_of = relationship("Ticker", back_populates="options")    
 

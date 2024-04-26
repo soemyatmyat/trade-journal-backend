@@ -12,7 +12,7 @@ class TickerCreate(Ticker_Id):
 
 class Ticker(Ticker_Id):
     closed_price: float 
-    closed_date: date
+    fetched_date: date
 
     class Config:
         orm_mode = True 
@@ -33,4 +33,5 @@ class Option_Details(Option):
     volume: float 
     iv: float 
     itm: bool
+    fetched_date: date
 
