@@ -16,6 +16,14 @@ Trade journal for recording trading activites. It has never been easy to track y
 - [X] Add test data for render
 - [ ] Query Optimization 
 
+## Iteration 0.3
+- [ ] Add next earning date, metrics, option implied volatility 
+  - Volume, Beta, Mkt Cap, Yield, Put/Call Ratio <== json.dumps(ticker.info, indent=4)
+  - VWAP, IV(%), PE, Dividend, Market Maker Move 
+  - Avg. Volume, HV(%), EPS, Ex Date, Upcoming Earnings 
+- [ ] SEC Form 4 insider trading (https://sec-api.io/docs/insider-ownership-trading-api)
+https://data.nasdaq.com/databases/VOL
+
 
 ## Interactive API Documments: 
 - http://{localhost}:{port}/docs (by Swagger UI)

@@ -9,6 +9,7 @@ import testing.init_db as init_db
 
 app = FastAPI()
 origins = ["*"] # this need to be changed later, to only allow whitelisted IPs 
+#origins = ["https://finance.boring-is-good.com"]
 
 # Configure CORS
 app.add_middleware(

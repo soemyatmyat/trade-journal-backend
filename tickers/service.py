@@ -55,6 +55,50 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
     df.dropna(inplace=True)
     return df.to_dict(orient='records') # return in dict/json form 
 
+def get_metrics(ticker: str): 
+    data = yf.Ticker(ticker).info
+    market_cap = format_market_cap(data.get('marketCap'))
+    ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp)
+    if ex_dividend_date:
+        # Convert UNIX timestamp to a human-readable format
+        ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
+    else: 
+        ex_dividend_date = ''
+    upcoming_earnings_date = data.get('earningsDate')
+    if upcoming_earnings_date:
+        # Extract the date if it's in a list format
+        if isinstance(upcoming_earnings_date, list):
+            upcoming_earnings_date = upcoming_earnings_date[0]  # Get the first date if it's a list
+        # Convert UNIX timestamp to a human-readable format
+        upcoming_earnings_date = datetime.fromtimestamp(upcoming_earnings_date).strftime('%Y-%m-%d')
+    else: 
+        upcoming_earnings_date = '' 
+    metrics = {
+        'symbol': data.get('symbol'),
+        'volume': data.get('volume'),
+        'beta': data.get('beta'),
+        'pe': data.get('trailingPE'),
+        'eps': data.get('trailingEps'),
+        'marketCap': market_cap,
+        'dividendYield': data.get('dividendYield'),
+        'averageVolume': data.get('averageVolume'),
+        'dividend': data.get('dividendRate'),
+        'exDividendDate':  ex_dividend_date,
+        'upcomingEarningsDate': upcoming_earnings_date
+    }
+    return metrics
+
+def format_market_cap(value):
+    if value >= 1e12:
+        return f"{value / 1e12:.2f}T"  # Trillions
+    elif value >= 1e9:
+        return f"{value / 1e9:.2f}B"   # Billions
+    elif value >= 1e6:
+        return f"{value / 1e6:.2f}M"   # Millions
+    else:
+        return str(value) 
+
+
 def get_option_by_id(db: Session, option_id: str):
     return db.query(models.Option).filter(models.Option.id == option_id).first()
 
