@@ -55,6 +55,23 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
     df.dropna(inplace=True)
     return df.to_dict(orient='records') # return in dict/json form 
 
+def get_put_call_vol_ratio(ticker: str):
+    data = yf.Ticker(ticker)  # Replace with your stock ticker
+    options = data.options
+    # Initialize total put and call volumes
+    total_put_volume = 0
+    total_call_volume = 0
+
+    for expiration in options:
+        option_chain = data.option_chain(expiration)
+        # Sum up the volumes for this expiration
+        total_put_volume += option_chain.puts['volume'].sum()
+        total_call_volume += option_chain.calls['volume'].sum()
+
+    put_call_ratio = total_put_volume / total_call_volume if total_call_volume > 0 else 0
+
+    return round(put_call_ratio, 2)
+
 def get_metrics(ticker: str): 
     data = yf.Ticker(ticker).info
     market_cap = format_market_cap(data.get('marketCap'))
@@ -73,31 +90,44 @@ def get_metrics(ticker: str):
         upcoming_earnings_date = datetime.fromtimestamp(upcoming_earnings_date).strftime('%Y-%m-%d')
     else: 
         upcoming_earnings_date = '' 
+    pe = data.get('trailingPE')
+    pe_formatted = '' if pe is None else round(pe, 2) # some tickers will not have PE as they have yet to make a profit
+    divided_yield = data.get('dividendYield')
+    dividend_yield_formatted = '' if divided_yield is None else round(divided_yield * 100, 2) # some tickers don't pay dividend
+    beta = data.get('beta')
+    beta_formatted = '' if beta is None else round(data.get('beta'), 2)
     metrics = {
         'symbol': data.get('symbol'),
         'volume': data.get('volume'),
-        'beta': data.get('beta'),
-        'pe': data.get('trailingPE'),
-        'eps': data.get('trailingEps'),
-        'marketCap': market_cap,
-        'dividendYield': data.get('dividendYield'),
+        'beta': beta_formatted,
+        'IV': '',
+        'annualDividend': data.get('dividendRate'),
+        'VWAP': '',
         'averageVolume': data.get('averageVolume'),
-        'dividend': data.get('dividendRate'),
+        'PE': pe_formatted, 
+        'HV': '',
+        'dividendYield': dividend_yield_formatted,
+        'marketMakerMove': '',
+        'marketCap': market_cap,
+        'EPS': data.get('trailingEps'),
+        'PCR': get_put_call_vol_ratio(ticker),
         'exDividendDate':  ex_dividend_date,
-        'upcomingEarningsDate': upcoming_earnings_date
+        'upcomingEarningsDate': upcoming_earnings_date,
+
     }
     return metrics
 
 def format_market_cap(value):
-    if value >= 1e12:
-        return f"{value / 1e12:.2f}T"  # Trillions
-    elif value >= 1e9:
-        return f"{value / 1e9:.2f}B"   # Billions
-    elif value >= 1e6:
-        return f"{value / 1e6:.2f}M"   # Millions
-    else:
-        return str(value) 
-
+    if value is not None:
+        if value >= 1e12:
+            return f"{value / 1e12:.2f}T"  # Trillions
+        elif value >= 1e9:
+            return f"{value / 1e9:.2f}B"   # Billions
+        elif value >= 1e6:
+            return f"{value / 1e6:.2f}M"   # Millions
+        else:
+            return str(value) 
+    return ''
 
 def get_option_by_id(db: Session, option_id: str):
     return db.query(models.Option).filter(models.Option.id == option_id).first()

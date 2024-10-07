@@ -17,10 +17,13 @@ Trade journal for recording trading activites. It has never been easy to track y
 - [ ] Query Optimization 
 
 ## Iteration 0.3
-- [ ] Add next earning date, metrics, option implied volatility 
-  - Volume, Beta, Mkt Cap, Yield, Put/Call Ratio <== json.dumps(ticker.info, indent=4)
-  - VWAP, IV(%), PE, Dividend, Market Maker Move 
-  - Avg. Volume, HV(%), EPS, Ex Date, Upcoming Earnings 
+- [X] Technical Indiators and metrics for stock analysis
+  - [X] Volume, Average Volume, Market Cap
+  - [X] Beta, PE, EPS
+  - [ ] IV, HV, VWAP
+  - [X] Put/Call Ratio = option_chain.puts['volume'].sum() / option_chain.calls['volume'].sum()
+  - [X] Dividend (Dividend Rate=Dividends per Share (DPS), Dividend Yield, Ex Dividend Date
+  - [X] Upcoming Earnings Date 
 - [ ] SEC Form 4 insider trading (https://sec-api.io/docs/insider-ownership-trading-api)
 https://data.nasdaq.com/databases/VOL
 
