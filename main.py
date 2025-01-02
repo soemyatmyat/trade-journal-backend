@@ -8,10 +8,10 @@ from database import engine, Base
 import testing.init_db as init_db
 
 app = FastAPI()
-#origins = ["*"] # this need to be changed later, to only allow whitelisted IPs 
-origins = ["https://finance.boring-is-good.com"]
 
 # Configure CORS
+#origins = ["*"] # this need to be changed later, to only allow whitelisted IPs 
+origins = ["https://finance.boring-is-good.com"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # Allow requests from origins
@@ -20,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"],  # Specify the allowed headers
 )
 
+# Redirect to Swagger
 @app.get("/", include_in_schema=False)
 async def redirect_to_docs():
     return RedirectResponse(url="/docs")
@@ -27,6 +28,5 @@ async def redirect_to_docs():
 app.include_router(auth_router, prefix="/auth")
 app.include_router(pos_router, prefix="/positions")
 app.include_router(ticker_router, prefix="/tickers")
-Base.metadata.create_all(bind=engine) 
-# load test data (render is redeploying everything)
-init_db.initialize_data()
+Base.metadata.create_all(bind=engine) # 
+init_db.initialize_data() # load test data (render is redeploying everything) # this will be removed later

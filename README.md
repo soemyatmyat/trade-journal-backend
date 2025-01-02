@@ -1,5 +1,21 @@
 ## Description 
-Trade journal for recording trading activites. It has never been easy to track your trading activites. 
+Back-end Trade journal for analyzing trading activites. 
+```
+server/
+├── main.py           # Application entry point
+├── redis.py   # Redis client initialization
+├── database.py       # SQLALCHEMY session initialization
+├── tickers/             
+│   ├── __init__.py
+│   ├── models.py     
+│   └── router.py     
+|   └── schemas.py  
+|   └── service.py     
+└── settings.py       # Initializer
+└── .env              # Environment variables
+└── Dockerfile         
+└── README
+```
 
 ## Iteration 0
 - [X] UI Design Mockup 
@@ -22,11 +38,11 @@ Trade journal for recording trading activites. It has never been easy to track y
   - [X] Beta, PE, EPS
   - [ ] IV, HV, VWAP
   - [X] Put/Call Ratio = option_chain.puts['volume'].sum() / option_chain.calls['volume'].sum()
-  - [X] Dividend (Dividend Rate=Dividends per Share (DPS), Dividend Yield, Ex Dividend Date
-  - [X] Upcoming Earnings Date 
-- [ ] SEC Form 4 insider trading (https://sec-api.io/docs/insider-ownership-trading-api)
-https://data.nasdaq.com/databases/VOL
-
+  - [X] Dividend (Dividend Rate=Dividends per Share (DPS), Dividend Yield, Ex Dividend Date)
+  - [ ] Upcoming Earnings Date 
+- [ ] SEC Form 4 insider trading 
+- [ ] Incorporate Redis cache for Stock Analysis 
+- [ ] Loggings
 
 ## Interactive API Documments: 
 - http://{localhost}:{port}/docs (by Swagger UI)

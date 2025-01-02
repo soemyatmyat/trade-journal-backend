@@ -14,7 +14,7 @@ def load_json(filename):
   return data 
 #  can't use Depends in your own functions, it has to be in FastAPI functions, mainly routes
 def initialize_data():
-  # get an instance of Sesson 
+  # get an instance of Session 
   Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
   session = Session() 
 

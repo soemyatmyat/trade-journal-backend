@@ -1,8 +1,11 @@
 from . import schemas, models 
+from fastapi import Depends
 from sqlalchemy.orm import Session 
 from datetime import datetime
 import yfinance as yf
 import pandas as pd
+import redis 
+import json
 
 def get_ticker(db: Session, ticker: str):
     return db.query(models.Ticker).filter(models.Ticker.ticker==ticker).first()
@@ -35,7 +38,14 @@ def get_closed_price(db: Session, ticker_id: int):
 
     return schemas.Ticker(ticker=existing_ticker.ticker, closed_price= existing_ticker.closed_price, fetched_date=existing_ticker.fetched_date)
 
-def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str):
+def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str, redis_client: redis.Redis):
+    # redis cache check
+    if (redis_client.ping()):
+        redis_cache_key = f"price_history:{ticker}:{start_date}:{end_date}:{frequency}"
+        cached_data = redis_client.get(redis_cache_key)
+        if cached_data is not None: 
+            return json.loads(cached_data)
+
     # download historical price data 
     data = yf.download(ticker, start_date, end_date)["Adj Close"].round(2)
     # resample data to the specified frequency
@@ -53,6 +63,12 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
     df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
     df = df.sort_values(by='Date', ascending=False) 
     df.dropna(inplace=True)
+
+    if (redis_client.ping()):
+        json_data = json.dumps(df.to_dict(orient='records'), indent=4)
+        # cache the data in Redis
+        redis_client.set(redis_cache_key, json_data, ex=600, nx=True)
+
     return df.to_dict(orient='records') # return in dict/json form 
 
 def get_put_call_vol_ratio(ticker: str):
