@@ -14,4 +14,7 @@ def create_redis_pool() -> redis.ConnectionPool:
 
 # Get Redis client using the connection pool
 def get_redis_client(pool: redis.ConnectionPool = Depends(create_redis_pool)) -> redis.Redis:
-    return redis.Redis(connection_pool=pool)
+    try:
+       return redis.Redis(connection_pool=pool)
+    except redis.ConnectionError: # if error: send None
+       return None

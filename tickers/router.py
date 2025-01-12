@@ -49,12 +49,6 @@ async def get_price_history(
     if not existing_ticker:
         raise HTTPException(status_code=404, detail="No data found, symbol may be delisted.")
     
-    # retrieve data 
-    try:
-        pass
-    except redis.exceptions.ConnectionError as e:
-        print("error: Could not connect to Redis: ", e)
-
     return service.get_historical_price(ticker_id, from_date, to_date, frequency.upper(),redis_client)
 
 @router.get("/metrics/{ticker_id}", tags=["tickers"])

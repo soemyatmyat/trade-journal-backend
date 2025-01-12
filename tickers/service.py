@@ -40,11 +40,15 @@ def get_closed_price(db: Session, ticker_id: int):
 
 def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str, redis_client: redis.Redis):
     # redis cache check
-    if (redis_client.ping()):
-        redis_cache_key = f"price_history:{ticker}:{start_date}:{end_date}:{frequency}"
-        cached_data = redis_client.get(redis_cache_key)
-        if cached_data is not None: 
-            return json.loads(cached_data)
+    try:
+        if (redis_client.ping()):
+            redis_cache_key = f"price_history:{ticker}:{start_date}:{end_date}:{frequency}"
+            cached_data = redis_client.get(redis_cache_key)
+            if cached_data is not None: 
+                return json.loads(cached_data)
+
+    except redis.exceptions.ConnectionError as e: # this needs to be logged. 
+        print("error: Could not connect to Redis: ", e)
 
     # download historical price data 
     data = yf.download(ticker, start_date, end_date)["Adj Close"].round(2)
@@ -64,10 +68,13 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
     df = df.sort_values(by='Date', ascending=False) 
     df.dropna(inplace=True)
 
-    if (redis_client.ping()):
-        json_data = json.dumps(df.to_dict(orient='records'), indent=4)
-        # cache the data in Redis
-        redis_client.set(redis_cache_key, json_data, ex=600, nx=True)
+    try:
+        if (redis_client.ping()):
+            json_data = json.dumps(df.to_dict(orient='records'), indent=4)
+            # cache the data in Redis
+            redis_client.set(redis_cache_key, json_data, ex=600, nx=True)
+    except redis.exceptions.ConnectionError as e: 
+        print("error: Could not connect to Redis: ", e)
 
     return df.to_dict(orient='records') # return in dict/json form 
 

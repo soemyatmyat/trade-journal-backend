@@ -11,6 +11,18 @@ server/
 │   └── router.py     
 |   └── schemas.py  
 |   └── service.py     
+├── auth/             
+│   ├── __init__.py
+│   ├── models.py     
+│   └── router.py     
+|   └── schemas.py  
+|   └── service.py     
+├── positions/             
+│   ├── __init__.py
+│   ├── models.py     
+│   └── router.py     
+|   └── schemas.py  
+|   └── service.py  
 └── settings.py       # Initializer
 └── .env              # Environment variables
 └── Dockerfile         
@@ -41,8 +53,9 @@ server/
   - [X] Dividend (Dividend Rate=Dividends per Share (DPS), Dividend Yield, Ex Dividend Date)
   - [ ] Upcoming Earnings Date 
 - [ ] SEC Form 4 insider trading 
-- [ ] Incorporate Redis cache for Stock Analysis 
-- [ ] Loggings
+- [X] Incorporate Redis cache for Stock Analysis 
+  - [X] Fixed to work with or without Redis. Caching should not break the app.
+- [X] Loggings or output streams should be handled by the execution environment, collated together with all other streams from the app, and routed to one or more final destinations for viewing and long-term archival. Source: [The Twelve-Factor App](https://12factor.net/logs)
 
 ## Interactive API Documments: 
 - http://{localhost}:{port}/docs (by Swagger UI)
