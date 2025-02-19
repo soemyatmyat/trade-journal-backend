@@ -52,6 +52,7 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
 
     # download historical price data 
     data = yf.download(ticker, start_date, end_date)["Close"].round(2)
+    data = data.rename(columns={ticker.upper(): "close"})
     # resample data to the specified frequency
     weekstarts = data.resample(frequency).last()
     weekends = weekstarts.shift(-1)
