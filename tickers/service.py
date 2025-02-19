@@ -51,7 +51,7 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
         print("error: Could not connect to Redis: ", e)
 
     # download historical price data 
-    data = yf.download(ticker, start_date, end_date)["Adj Close"].round(2)
+    data = yf.download(ticker, start_date, end_date)["Close"].round(2)
     # resample data to the specified frequency
     weekstarts = data.resample(frequency).last()
     weekends = weekstarts.shift(-1)

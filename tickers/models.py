@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, Float, String, Date,ForeignKey, Boolean 
 from sqlalchemy.types import Enum
 from sqlalchemy.orm import relationship 
@@ -31,4 +32,4 @@ class Option(Base):
 
     ticker_of = relationship("Ticker", back_populates="options")    
 
-## need to run cron job::
+## need to run cron job:: for stocks and insider transaction
