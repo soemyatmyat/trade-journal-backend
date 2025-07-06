@@ -9,9 +9,11 @@ attrs==25.1.0
 bcrypt==4.1.2
 beautifulsoup4==4.12.3
 certifi==2024.2.2
+cffi==1.17.1
 charset-normalizer==3.3.2
 click==8.1.7
 cssselect==1.2.0
+curl_cffi==0.10.0
 ecdsa==0.18.0
 exceptiongroup==1.2.0
 fastapi==0.110.0
@@ -29,7 +31,9 @@ passlib==1.7.4
 peewee==3.17.1
 platformdirs==4.3.6
 propcache==0.2.1
+protobuf==5.29.4
 pyasn1==0.6.0
+pycparser==2.22
 pydantic==2.6.4
 pydantic_core==2.16.3
 python-dateutil==2.9.0.post0
@@ -53,5 +57,6 @@ urllib3==2.2.1
 user-agent==0.1.10
 uvicorn==0.29.0
 webencodings==0.5.1
+websockets==15.0.1
 yarl==1.18.3
-yfinance==0.2.54
+yfinance==0.2.59

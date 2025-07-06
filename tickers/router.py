@@ -52,13 +52,13 @@ async def get_price_history(
     return service.get_historical_price(ticker_id, from_date, to_date, frequency.upper(),redis_client)
 
 @router.get("/metrics/{ticker_id}", tags=["tickers"])
-async def get_metrics(ticker_id: str, db: Session=Depends(get_db)):
+async def get_metrics(ticker_id: str, db: Session=Depends(get_db), redis_client: redis.Redis = Depends(get_redis_client)):
     existing_ticker = service.get_closed_price(db, ticker_id) # validation check: ticker_id
     if not existing_ticker:
         raise HTTPException(status_code=404, detail="No data found, symbol may be delisted.")
     
     # retrieve data 
-    return service.get_metrics(ticker_id)
+    return service.get_metrics(ticker_id, redis_client)
 
 @router.get("/updates", include_in_schema=False) 
 async def update_tickers(db: Session=Depends(get_db)):

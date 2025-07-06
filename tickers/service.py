@@ -96,50 +96,69 @@ def get_put_call_vol_ratio(ticker: str):
 
     return round(put_call_ratio, 2)
 
-def get_metrics(ticker: str): 
-    data = yf.Ticker(ticker).info
-    market_cap = format_market_cap(data.get('marketCap'))
-    ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp)
-    if ex_dividend_date:
-        # Convert UNIX timestamp to a human-readable format
-        ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
-    else: 
-        ex_dividend_date = ''
-    upcoming_earnings_date = data.get('earningsDate')
-    if upcoming_earnings_date:
-        # Extract the date if it's in a list format
-        if isinstance(upcoming_earnings_date, list):
-            upcoming_earnings_date = upcoming_earnings_date[0]  # Get the first date if it's a list
-        # Convert UNIX timestamp to a human-readable format
-        upcoming_earnings_date = datetime.fromtimestamp(upcoming_earnings_date).strftime('%Y-%m-%d')
-    else: 
-        upcoming_earnings_date = '' 
-    pe = data.get('trailingPE')
-    pe_formatted = '' if pe is None else round(pe, 2) # some tickers will not have PE as they have yet to make a profit
-    divided_yield = data.get('dividendYield')
-    dividend_yield_formatted = '' if divided_yield is None else round(divided_yield * 100, 2) # some tickers don't pay dividend
-    beta = data.get('beta')
-    beta_formatted = '' if beta is None else round(data.get('beta'), 2)
-    metrics = {
-        'symbol': data.get('symbol'),
-        'volume': data.get('volume'),
-        'beta': beta_formatted,
-        'IV': '',
-        'annualDividend': data.get('dividendRate'),
-        'VWAP': '',
-        'averageVolume': data.get('averageVolume'),
-        'PE': pe_formatted, 
-        'HV': '',
-        'dividendYield': dividend_yield_formatted,
-        'marketMakerMove': '',
-        'marketCap': market_cap,
-        'EPS': data.get('trailingEps'),
-        'PCR': get_put_call_vol_ratio(ticker),
-        'exDividendDate':  ex_dividend_date,
-        'upcomingEarningsDate': upcoming_earnings_date,
+def get_metrics(ticker: str, redis_client: redis.Redis): 
+  # redis cache check
+  try:
+    if (redis_client.ping()):
+      redis_cache_key = f"metrics:{ticker}"
+      cached_data = redis_client.get(redis_cache_key)
+      if cached_data is not None: 
+          return json.loads(cached_data)
+  except redis.exceptions.ConnectionError as e: # this needs to be logged.
+    print("error: Could not connect to Redis: ", e)
 
-    }
-    return metrics
+  # download ticker information
+  data = yf.Ticker(ticker).info
+  download_time = datetime.now()
+  market_cap = format_market_cap(data.get('marketCap'))
+  ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp)
+  if ex_dividend_date:
+    # Convert UNIX timestamp to a human-readable format
+    ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
+  else: 
+    ex_dividend_date = ''
+  upcoming_earnings_date = data.get('earningsDate')
+  if upcoming_earnings_date:
+    # Extract the date if it's in a list format
+    if isinstance(upcoming_earnings_date, list):
+      upcoming_earnings_date = upcoming_earnings_date[0]  # Get the first date if it's a list
+    # Convert UNIX timestamp to a human-readable format
+    upcoming_earnings_date = datetime.fromtimestamp(upcoming_earnings_date).strftime('%Y-%m-%d')
+  else: 
+    upcoming_earnings_date = '' 
+  pe = data.get('trailingPE')
+  pe_formatted = '' if pe is None else round(pe, 2) # some tickers will not have PE as they have yet to make a profit
+  divided_yield = data.get('dividendYield')
+  dividend_yield_formatted = '' if divided_yield is None else round(divided_yield * 100, 2) # some tickers don't pay dividend
+  beta = data.get('beta')
+  beta_formatted = '' if beta is None else round(data.get('beta'), 2)
+  metrics = {
+    'symbol': data.get('symbol'),
+    'volume': data.get('volume'),
+    'beta': beta_formatted,
+    'IV': '',
+    'annualDividend': data.get('dividendRate'),
+    'VWAP': '',
+    'averageVolume': data.get('averageVolume'),
+    'PE': pe_formatted, 
+    'HV': '',
+    'dividendYield': dividend_yield_formatted,
+    'marketMakerMove': '',
+    'marketCap': market_cap,
+    'EPS': data.get('trailingEps'),
+    'PCR': get_put_call_vol_ratio(ticker),
+    'exDividendDate':  ex_dividend_date,
+    'upcomingEarningsDate': upcoming_earnings_date,
+  }
+  try:
+    if (redis_client.ping()):
+      json_data = json.dumps(metrics)
+      # cache the data in Redis
+      redis_client.set(redis_cache_key, json_data, ex=600, nx=True)
+  except redis.exceptions.ConnectionError as e:
+    print("error: Could not connect to Redis: ", e)
+
+  return metrics
 
 def format_market_cap(value):
     if value is not None:
