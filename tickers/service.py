@@ -1,12 +1,14 @@
 from . import schemas, models 
 from fastapi import Depends
 from sqlalchemy.orm import Session 
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import yfinance as yf
 import pandas as pd
 import redis 
 import json
 import settings
+
 
 def get_ticker(db: Session, ticker: str):
   return db.query(models.Ticker).filter(models.Ticker.ticker==ticker).first()
@@ -39,46 +41,56 @@ def get_closed_price(db: Session, ticker_id: int):
 
   return schemas.Ticker(ticker=existing_ticker.ticker, closed_price= existing_ticker.closed_price, fetched_date=existing_ticker.fetched_date)
 
+
 def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str, redis_client: redis.Redis):
-    # redis cache check
-    try:
-      if (redis_client.ping()):
-        redis_cache_key = f"price_history:{ticker}:{start_date}:{end_date}:{frequency}"
-        cached_data = redis_client.get(redis_cache_key)
-        if cached_data is not None: 
-          return json.loads(cached_data)
+  '''
+  Get historical price data for a given ticker symbol between start_date and end_date.
+  Parameters:
+  - ticker: Stock ticker symbol (e.g., 'AAPL')
+  - start_date: Start date for historical data (YYYY-MM-DD) in UTC
+  - end_date: End date for historical data (YYYY-MM-DD) in UTC
+  - frequency: 'W' for weekly, 'M' for monthly
+  '''
+  end_date_plus_one = end_date + timedelta(days=1)
+  # redis cache check
+  try:
+    if (redis_client.ping()):
+      redis_cache_key = f"price_history:{ticker}:{start_date}:{end_date_plus_one}:{frequency}"
+      cached_data = redis_client.get(redis_cache_key)
+      if cached_data is not None: 
+        return json.loads(cached_data)
 
-    except redis.exceptions.ConnectionError as e: # this needs to be logged. 
-      print("error: Could not connect to Redis: ", e)
+  except redis.exceptions.ConnectionError as e: # this needs to be logged. 
+    print("error: Could not connect to Redis: ", e)
 
-    # download historical price data 
-    data = yf.download(ticker, start_date, end_date)["Close"].round(2)
-    data = data.rename(columns={ticker.upper(): "close"})
-    # resample data to the specified frequency
-    weekstarts = data.resample(frequency).last()
-    weekends = weekstarts.shift(-1)
-    # compute weekly returns
-    weekly_ret_diff = (weekends - weekstarts)
-    weekly_ret_change = weekly_ret_diff / weekstarts
-    # prep data format 
-    df = pd.DataFrame(weekends)
-    df["prev"] = weekstarts
-    df["diff"] = weekly_ret_diff.round(2)
-    df["percentage"] = (weekly_ret_change * 100).round(2)
-    df.reset_index(inplace=True)
-    df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-    df = df.sort_values(by='Date', ascending=False) 
-    df.dropna(inplace=True)
+  # download historical price data 
+  data = yf.download(ticker, start_date, end_date_plus_one)["Close"].round(2)
+  data = data.rename(columns={ticker.upper(): "close"})
+  # resample data to the specified frequency
+  weekstarts = data.resample(frequency).last()
+  weekends = weekstarts.shift(-1)
+  # compute weekly returns
+  weekly_ret_diff = (weekends - weekstarts)
+  weekly_ret_change = weekly_ret_diff / weekstarts
+  # prep data format 
+  df = pd.DataFrame(weekends)
+  df["prev"] = weekstarts
+  df["diff"] = weekly_ret_diff.round(2)
+  df["percentage"] = (weekly_ret_change * 100).round(2)
+  df.reset_index(inplace=True)
+  df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
+  df = df.sort_values(by='Date', ascending=False) 
+  df.dropna(inplace=True)
 
-    try:
-      if (redis_client.ping()):
-        json_data = json.dumps(df.to_dict(orient='records'), indent=4)
-        # cache the data in Redis
-        redis_client.set(redis_cache_key, json_data, ex=settings.REDIS_EX, nx=True)
-    except redis.exceptions.ConnectionError as e: 
-      print("error: Could not connect to Redis: ", e)
+  try:
+    if (redis_client.ping()):
+      json_data = json.dumps(df.to_dict(orient='records'), indent=4)
+      # cache the data in Redis
+      redis_client.set(redis_cache_key, json_data, ex=settings.REDIS_EX, nx=True)
+  except redis.exceptions.ConnectionError as e: 
+    print("error: Could not connect to Redis: ", e)
 
-    return df.to_dict(orient='records') # return in dict/json form 
+  return df.to_dict(orient='records') # return in dict/json form 
 
 def get_put_call_vol_ratio(ticker: str):
   data = yf.Ticker(ticker)  # Replace with your stock ticker
@@ -104,7 +116,7 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
       redis_cache_key = f"metrics:{ticker}"
       cached_data = redis_client.get(redis_cache_key)
       if cached_data is not None: 
-          return json.loads(cached_data)
+        return json.loads(cached_data)
   except redis.exceptions.ConnectionError as e: # this needs to be logged.
     print("error: Could not connect to Redis: ", e)
 
@@ -115,18 +127,29 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
   ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp)
   if ex_dividend_date:
     # Convert UNIX timestamp to a human-readable format
-    ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
+    # ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
+    # Convert from UNIX timestamp (seconds since epoch) to UTC date
+    ex_dividend_date = datetime.fromtimestamp(ex_dividend_date, ZoneInfo("UTC")).strftime('%Y-%m-%dT%H:%M:%S%z')
   else: 
     ex_dividend_date = ''
-  upcoming_earnings_date = data.get('earningsDate')
-  if upcoming_earnings_date:
-    # Extract the date if it's in a list format
-    if isinstance(upcoming_earnings_date, list):
-      upcoming_earnings_date = upcoming_earnings_date[0]  # Get the first date if it's a list
-    # Convert UNIX timestamp to a human-readable format
-    upcoming_earnings_date = datetime.fromtimestamp(upcoming_earnings_date).strftime('%Y-%m-%d')
-  else: 
-    upcoming_earnings_date = '' 
+  earnings_hist = {} # dictionary placeholder for earnings history
+  earnings_dates = yf.Ticker(ticker).get_earnings_dates() # this returns a dataframe
+  upcoming_earnings_date = ''
+  if not earnings_dates.empty:
+    last_earnings = earnings_dates.iloc[0] # this returns in UNIX timestamp
+    last_earnings_date = last_earnings.name # index of the row, i.e., Timestamp('2025-10-30 16:00:00-0400', tz='America/New_York')
+    last_earnings_date = last_earnings_date.to_pydatetime() # convert to datetime object with timezone info
+    last_earnings_date_utc = last_earnings_date.astimezone(ZoneInfo("UTC")) # convert to UTC
+    download_time_utc = download_time.astimezone(ZoneInfo("UTC")) # convert to UTC
+    # Check if the last earnings date is in the past
+    if last_earnings_date_utc > download_time_utc:
+      upcoming_earnings_date = last_earnings_date.astimezone(ZoneInfo("UTC")).isoformat()
+      earnings_dates.drop(earnings_dates.index[0], inplace=True) # remove the upcoming earnings date from the history
+    earnings_dates = earnings_dates.reset_index()  # move index to column
+    earnings_dates = earnings_dates.dropna(subset=["EPS Estimate", "Reported EPS", "Surprise(%)"]) # drop rows with NaN values in any of the specified columns
+    earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].dt.tz_convert('UTC').dt.strftime('%Y-%m-%dT%H:%M:%S%z')
+    earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].str.replace(r'(\d{2})(\d{2})$', r'\1:\2', regex=True) # add colon to timezone offset
+    earnings_hist = earnings_dates.to_dict(orient="records") # Convert DataFrame to list of dicts
   pe = data.get('trailingPE')
   pe_formatted = '' if pe is None else round(pe, 2) # some tickers will not have PE as they have yet to make a profit
   divided_yield = data.get('dividendYield')
@@ -150,6 +173,7 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
     'PCR': get_put_call_vol_ratio(ticker),
     'exDividendDate':  ex_dividend_date,
     'upcomingEarningsDate': upcoming_earnings_date,
+    'earningsHistory': earnings_hist,
   }
   try:
     if (redis_client.ping()):
@@ -178,7 +202,7 @@ def get_option_by_id(db: Session, option_id: str):
 
 def get_option(db: Session, option:schemas.Option):
   return db.query(models.Option).filter(
-    models.Option.ticker == option.ticker, 
+    models.Option.ticker == option.ticker.upper(), 
     models.Option.strike_price == option.strike_price, 
     models.Option.expire_date == option.expire_date,
     models.Option.type == option.type
@@ -214,7 +238,7 @@ def get_option_price(db: Session, option: schemas.Option):
         db_option = models.Option(
                 id=option_data['contractSymbol'].values[0],
                 type=option.type.value, 
-                ticker=option.ticker,
+                ticker=option.ticker.upper(),
                 expire_date=option.expire_date,
                 strike_price=option_data['strike'].values[0],
                 ask=option_data['ask'].values[0],

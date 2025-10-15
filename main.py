@@ -6,16 +6,13 @@ from tickers.router import router as ticker_router
 from positions.router import router as pos_router
 from database import engine, Base
 import testing.init_db as init_db
+import settings
 
-app = FastAPI()
+app = FastAPI(debug=False, title="Stock Options Analytics API", version="1.0.0", description="API for stock options analytics and portfolio management")
 
-# Configure CORS
-# origins = ["*"] # this need to be changed later, to only allow whitelisted IPs 
-origins = ["http://localhost:5173"]
-#origins = ["https://finance.boring-is-good.com"]
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=origins,  # Allow requests from origins
+  allow_origins=settings.ORIGINS,  # Allow requests from origins
   allow_credentials=True, # Allow Credentials (Authorization headers, Cookies, etc) to be included in the requests
   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Specify the allowed HTTP methods
   allow_headers=["*"],  # Specify the allowed headers

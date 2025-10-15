@@ -23,39 +23,40 @@ def get_position_by_id(db: Session, id: int):
     return db.query(models.Position).filter(models.Position.id == id).first()
 
 def retrieve_positions(db: Session, user_id: int, skip: int = 0, limit: int = 100):
-    positions = db.query(models.Position)\
-             .filter(models.Position.owner_id == user_id)\
-             .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
-             .offset(skip)\
-             .limit(limit)\
-             .all()
+  positions = db.query(models.Position)\
+            .filter(models.Position.owner_id == user_id)\
+            .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
+            .offset(skip)\
+            .limit(limit)\
+            .all()
 
-    #options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put') and position.close_date < datetime.today().date()]
-    options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put')]
-    if options_positions:
-        # update the option position as it has already expired
-        for p in options_positions:
-            p.is_active = False 
-            p.closed_price = 0
-        db.commit()
+  #options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put') and position.close_date < datetime.today().date()]
+  options_positions = [position for position in positions if (position.category == 'Call' or position.category == 'Put')]
+  if options_positions:
+    # update the option position if it has already expired
+    for p in options_positions:
+      if (p.close_date and p.close_date < datetime.today().date()) or (not p.is_active):
+        p.is_active = False 
+        p.closed_price = 0
+    db.commit()
 
-    return db.query(models.Position)\
-             .filter(models.Position.owner_id == user_id)\
-             .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
-             .offset(skip)\
-             .limit(limit)\
-             .all()
+  return db.query(models.Position)\
+            .filter(models.Position.owner_id == user_id)\
+            .order_by(models.Position.open_date.desc(), models.Position.id.desc())\
+            .offset(skip)\
+            .limit(limit)\
+            .all()
 
 def update_position_by_id(db: Session, position_id: int, position: schemas.Position):
-    existing_position = get_position_by_id(db, position_id)
-    if existing_position:
-        for attr, value in position.model_dump(exclude_unset=True).items():
-            if value and getattr(existing_position, attr) != value: # check if new value is not empty and not the same as existing ones 
-                setattr(existing_position, attr, value)
-        db.commit()
-        return existing_position
-    else: 
-        return None 
+  existing_position = get_position_by_id(db, position_id)
+  if existing_position:
+    for attr, value in position.model_dump(exclude_unset=True).items():
+      if value and getattr(existing_position, attr) != value: # check if new value is not empty and not the same as existing ones 
+        setattr(existing_position, attr, value)
+    db.commit()
+    return existing_position
+  else: 
+    return None 
 
 def remove_position_by_id(db: Session, position_id: int):
     existing_position = get_position_by_id(db, position_id)
