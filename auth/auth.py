@@ -20,15 +20,15 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def revoke_token(token: str):
   BLACKLIST.add(token)
 
-def decode_access_token(token: str):
+def decode_access_token(token: str) -> schema.TokenData | None:
   if (token not in BLACKLIST):
     try:
       payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-      username: str = payload.get("sub")
+      username = payload.get("sub")
       token_data = schema.TokenData(username=username)
     except JWTError: # when will this be triggered??
       return None
-    return token_data 
+    return token_data
   return None
 
 def create_token():

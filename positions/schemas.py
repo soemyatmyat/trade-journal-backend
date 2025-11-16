@@ -1,41 +1,43 @@
 from typing import Optional
 from pydantic import BaseModel, Field 
-from datetime import date
+from datetime import datetime
 from enum import Enum
 
 class PositionType(str, Enum):
-    long = "Long"
-    short = "Short"
-    call = "Call"
-    put = "Put"
+  long = "Long"
+  short = "Short"
+  call = "Call"
+  put = "Put"
 
 class Position_Id(BaseModel):
-    id: int 
+  id: int 
 
 class Position(BaseModel):
-    ticker: str
-    category: PositionType = PositionType.long
-    qty: int = 100
-    option_price: Optional[float] = None
-    trade_price: float 
-    open_date: date
-    close_date: Optional[date] = None
-    closed_price: Optional[float] = None
-    remark: str = ''
+  id: Optional[int] = None
+  ticker: str
+  category: PositionType = PositionType.long
+  qty: int = 100
+  option_price: Optional[float] = None
+  trade_price: float 
+  open_date: datetime
+  close_date: Optional[datetime] = None
+  closed_price: Optional[float] = None
+  remark: str = ''
+  is_active: Optional[bool] = True
+
+  model_config = {
+    "from_attributes": True
+  }  # Enable ORM mode to work with SQLAlchemy models
 
 class Position_Create(Position):
-    owner_id: int 
-    is_active: bool | None = True 
+  owner_id: int 
+  model_config = {
+    "from_attributes": True
+  }  # Enable ORM mode to work with SQLAlchemy models
 
-class Position_Details(Position):
-    id: int 
-    is_active: bool
+class Position_Owner_Details(Position):
+  owner_id: int 
 
-    class Config:
-        from_attributes = True # compatible with ORMs
-
-class Position_Owner_Details(Position_Details):
-    owner_id: int 
-
-    class Config:
-        from_attributes = True # compatible with ORMs
+  model_config = {
+    "from_attributes": True
+  }  # Enable ORM mode to work with SQLAlchemy models

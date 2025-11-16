@@ -1,6 +1,6 @@
-from . import schemas, models 
-from fastapi import Depends
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy.orm import Session 
+from . import schemas, models, repository 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import yfinance as yf
@@ -9,48 +9,54 @@ import redis
 import json
 import settings
 
-
-def get_ticker(db: Session, ticker: str):
-  return db.query(models.Ticker).filter(models.Ticker.ticker==ticker).first()
-
-def update_ticker(db: Session, ticker: schemas.TickerCreate):
-  existing_ticker = get_ticker(db, ticker.ticker)
+def update_ticker(db: Session, ticker: schemas.TickerCreate) -> schemas.Ticker:
+  """
+  Update or insert a ticker into the database.
+  Args:
+    db: SQLAlchemy database session.
+    ticker: Ticker data to be inserted or updated.
+  """
+  existing_ticker = repository.get_ticker(db, ticker.ticker)
   if not existing_ticker:
-    db_ticker = models.Ticker(ticker=ticker.ticker, closed_price=ticker.closed_price, fetched_date=datetime.today().date())
-    db.add(db_ticker)
-    db.commit()
-    db.refresh(db_ticker)
-    return db_ticker 
-  else: # update if  existing
+    db_ticker = models.Ticker(ticker=ticker.ticker, closed_price=ticker.closed_price, fetched_date=datetime.now(ZoneInfo("UTC")))
+    db_ticker = repository.create_ticker(db, db_ticker)
+    return schemas.Ticker.model_validate(db_ticker)
+  else: # update if existing
     existing_ticker.closed_price = ticker.closed_price
-    existing_ticker.fetched_date = datetime.today().date()
-    db.commit()
-    db.refresh(existing_ticker)
-    return existing_ticker
+    existing_ticker.fetched_date = datetime.now(ZoneInfo("UTC"))
+    db_ticker = repository.update_ticker(db, existing_ticker)
+    return schemas.Ticker.model_validate(db_ticker)
 
-def get_closed_price(db: Session, ticker_id: int):
+def get_closed_price(db: Session, ticker: str) -> schemas.Ticker | None:
+  """
+  Retrieve the latest closing price for a given ticker symbol. If the ticker data is not up to date, fetches the latest price using yfinance
+  Args: 
+    db (session): SQLAlchemy database session used for querying and updating the ticker.
+    ticker (str): The stock ticker symbol (e.g. "AAPL", "TSLA", etc.).
+  """
   # check if existing in database 
-  existing_ticker = get_ticker(db, ticker_id)
-  if not existing_ticker or existing_ticker.fetched_date != datetime.today().date(): 
-    data = yf.Ticker(ticker_id)
+  existing_ticker = repository.get_ticker(db, ticker)
+  today_utc= datetime.now(ZoneInfo("UTC")).date()
+  if not existing_ticker or existing_ticker.fetched_date.date() != today_utc: 
+    data = yf.Ticker(ticker)
     closed_price = data.history(period='1d')['Close'] # returns the data in UTC
     if closed_price.shape[0] == 0:
       return None
     else:
-      existing_ticker = update_ticker(db, schemas.TickerCreate(ticker=ticker_id, closed_price=closed_price.iloc[-1]))   
+      existing_ticker = update_ticker(db, schemas.TickerCreate(ticker=ticker, closed_price=closed_price.iloc[-1]))   
+  return schemas.Ticker.model_validate(existing_ticker)
 
-  return schemas.Ticker(ticker=existing_ticker.ticker, closed_price= existing_ticker.closed_price, fetched_date=existing_ticker.fetched_date)
-
-
-def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str, redis_client: redis.Redis):
-  '''
+def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, frequency: str, redis_client: redis.Redis) -> list[dict]:
+  """
   Get historical price data for a given ticker symbol between start_date and end_date.
-  Parameters:
-  - ticker: Stock ticker symbol (e.g., 'AAPL')
-  - start_date: Start date for historical data (YYYY-MM-DD) in UTC
-  - end_date: End date for historical data (YYYY-MM-DD) in UTC
-  - frequency: 'W' for weekly, 'M' for monthly
-  '''
+  Args:
+    ticker: Stock ticker symbol (e.g., 'AAPL')
+    start_date: Start date for historical data (YYYY-MM-DD) in UTC
+    end_date: End date for historical data (YYYY-MM-DD) in UTC
+    frequency: 'W' for weekly, 'M' for monthly
+  Returns:
+    A list of dictionaries containing historical price data with keys: Date, close, prev, diff, percentage
+  """
   end_date_plus_one = end_date + timedelta(days=1)
   # redis cache check
   try:
@@ -59,7 +65,6 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
       cached_data = redis_client.get(redis_cache_key)
       if cached_data is not None: 
         return json.loads(cached_data)
-
   except redis.exceptions.ConnectionError as e: # this needs to be logged. 
     print("error: Could not connect to Redis: ", e)
 
@@ -84,33 +89,48 @@ def get_historical_price(ticker: str, start_date: datetime, end_date: datetime, 
 
   try:
     if (redis_client.ping()):
+      # convert dataframe to json
       json_data = json.dumps(df.to_dict(orient='records'), indent=4)
       # cache the data in Redis
-      redis_client.set(redis_cache_key, json_data, ex=settings.REDIS_EX, nx=True)
+      redis_client.set(redis_cache_key, json_data, ex=settings.REDIS_EX, nx=True) # nx to avoid overwriting existing cache
   except redis.exceptions.ConnectionError as e: 
     print("error: Could not connect to Redis: ", e)
 
   return df.to_dict(orient='records') # return in dict/json form 
 
-def get_put_call_vol_ratio(ticker: str):
-  data = yf.Ticker(ticker)  # Replace with your stock ticker
-  options = data.options
+def get_chain(data, exp) -> yf.Ticker.option_chain:
+  return data.option_chain(exp)
+
+def get_put_call_vol_ratio(ticker: str) -> float: 
+  """
+  Calculate the put/call volume ratio for a given ticker symbol.
+  Args:
+    ticker: Stock ticker symbol (e.g., 'AAPL')
+  """
+  data = yf.Ticker(ticker)  # download ticker information
+  options = data.options # list of expiration dates expected in 'YYYY-MM-DD' format, ex: ['2023-10-20', '2023-10-27', ...]
+
+  with ThreadPoolExecutor() as executor: # use ThreadPoolExecutor for concurrent fetching
+    chains = list(executor.map(get_chain, options)) # fetch all option chains concurrently
+  
+  total_put_volume = sum(chain.puts["volume"].sum() for chain in chains)
+  total_call_volume = sum(chain.calls["volume"].sum() for chain in chains)
   # Initialize total put and call volumes
-  total_put_volume = 0
-  total_call_volume = 0
+  # total_put_volume = 0
+  # total_call_volume = 0
 
-  for expiration in options:
-    option_chain = data.option_chain(expiration)
-    # Sum up the volumes for this expiration
-    total_put_volume += option_chain.puts['volume'].sum()
-    total_call_volume += option_chain.calls['volume'].sum()
+  # for expiration in options:
+  #   option_chain = data.option_chain(expiration)
+  #   # Sum up the volumes for this expiration
+  #   total_put_volume += option_chain.puts['volume'].sum()
+  #   total_call_volume += option_chain.calls['volume'].sum()
 
-  put_call_ratio = total_put_volume / total_call_volume if total_call_volume > 0 else 0
+  put_call_ratio = total_put_volume / total_call_volume if total_call_volume > 0 else 0 # compute put/call ratio
 
-  return round(put_call_ratio, 2)
+  return round(put_call_ratio, 2) # round to 2 decimal places
 
-def get_metrics(ticker: str, redis_client: redis.Redis): 
-  # redis cache check
+def get_metrics(ticker: str, redis_client: redis.Redis) -> dict: 
+  # redis cache check - instead of querying from yfinance every time, check if data is cached in redis
   try:
     if (redis_client.ping()):
       redis_cache_key = f"metrics:{ticker}"
@@ -120,11 +140,10 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
   except redis.exceptions.ConnectionError as e: # this needs to be logged.
     print("error: Could not connect to Redis: ", e)
 
-  # download ticker information
+  # otherwise, download ticker information # todo: what is the difference between yf.Ticker(ticker) and yf.download(ticker) ## 
   data = yf.Ticker(ticker).info
-  download_time = datetime.now()
-  market_cap = format_market_cap(data.get('marketCap'))
-  ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp)
+  market_cap = format_market_cap(data.get('marketCap')) # 1. Market Cap
+  ex_dividend_date = data.get('exDividendDate') # Ex-Dividend Date (in UNIX timestamp) # 2. Ex-Dividend Date
   if ex_dividend_date:
     # Convert UNIX timestamp to a human-readable format
     # ex_dividend_date = datetime.fromtimestamp(ex_dividend_date).strftime('%Y-%m-%d')
@@ -134,27 +153,29 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
     ex_dividend_date = ''
   earnings_hist = {} # dictionary placeholder for earnings history
   earnings_dates = yf.Ticker(ticker).get_earnings_dates() # this returns a dataframe
-  upcoming_earnings_date = ''
-  if not earnings_dates.empty:
+  upcoming_earnings_date = '' # 3. Upcoming Earnings Date
+  if not earnings_dates.empty or earnings_dates.shape[0] != 0:
     last_earnings = earnings_dates.iloc[0] # this returns in UNIX timestamp
     last_earnings_date = last_earnings.name # index of the row, i.e., Timestamp('2025-10-30 16:00:00-0400', tz='America/New_York')
     last_earnings_date = last_earnings_date.to_pydatetime() # convert to datetime object with timezone info
     last_earnings_date_utc = last_earnings_date.astimezone(ZoneInfo("UTC")) # convert to UTC
+    download_time = datetime.now()
     download_time_utc = download_time.astimezone(ZoneInfo("UTC")) # convert to UTC
     # Check if the last earnings date is in the past
     if last_earnings_date_utc > download_time_utc:
-      upcoming_earnings_date = last_earnings_date.astimezone(ZoneInfo("UTC")).isoformat()
+      upcoming_earnings_date = last_earnings_date_utc.isoformat() # convert to ISO 8601 format in UTC
       earnings_dates.drop(earnings_dates.index[0], inplace=True) # remove the upcoming earnings date from the history
     earnings_dates = earnings_dates.reset_index()  # move index to column
-    earnings_dates = earnings_dates.dropna(subset=["EPS Estimate", "Reported EPS", "Surprise(%)"]) # drop rows with NaN values in any of the specified columns
-    earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].dt.tz_convert('UTC').dt.strftime('%Y-%m-%dT%H:%M:%S%z')
-    earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].str.replace(r'(\d{2})(\d{2})$', r'\1:\2', regex=True) # add colon to timezone offset
-    earnings_hist = earnings_dates.to_dict(orient="records") # Convert DataFrame to list of dicts
-  pe = data.get('trailingPE')
+    earnings_dates = earnings_dates.dropna(subset=["EPS Estimate", "Reported EPS", "Surprise(%)"]) # drop rows with NaN values in any of the specified columns # todo: this is hardcoded, need to make it dynamic
+    if earnings_dates['Earnings Date']: # we manipulate the 'Earnings Date' column to convert to UTC ISO 8601 format directly in the dataframe 
+      earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].dt.tz_convert('UTC').dt.strftime('%Y-%m-%dT%H:%M:%S%z')
+      earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].str.replace(r'(\d{2})(\d{2})$', r'\1:\2', regex=True) # add colon to timezone offset
+    earnings_hist = earnings_dates.to_dict(orient="records") # Convert DataFrame to list of dicts # 4. Earnings History
+  pe = data.get('trailingPE') # 5. PE Ratio
   pe_formatted = '' if pe is None else round(pe, 2) # some tickers will not have PE as they have yet to make a profit
-  divided_yield = data.get('dividendYield')
+  divided_yield = data.get('dividendYield') # 6. Dividend Yield
   dividend_yield_formatted = '' if divided_yield is None else round(divided_yield * 100, 2) # some tickers don't pay dividend
-  beta = data.get('beta')
+  beta = data.get('beta') # 7. Beta
   beta_formatted = '' if beta is None else round(data.get('beta'), 2)
   metrics = {
     'symbol': data.get('symbol'),
@@ -178,7 +199,7 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
   try:
     if (redis_client.ping()):
       json_data = json.dumps(metrics)
-      # cache the data in Redis
+      # cache the data in Redis with key: f"metrics:{ticker}", 600 seconds expiration, nx = True to avoid overwriting existing cache
       redis_client.set(redis_cache_key, json_data, ex=settings.REDIS_EX, nx=True)
   except redis.exceptions.ConnectionError as e:
     print("error: Could not connect to Redis: ", e)
@@ -187,7 +208,7 @@ def get_metrics(ticker: str, redis_client: redis.Redis):
 
 def format_market_cap(value):
   if value is not None:
-    if value >= 1e12:
+    if value >= 1e12: 
       return f"{value / 1e12:.2f}T"  # Trillions
     elif value >= 1e9:
       return f"{value / 1e9:.2f}B"   # Billions
@@ -197,43 +218,48 @@ def format_market_cap(value):
       return str(value) 
   return ''
 
-def get_option_by_id(db: Session, option_id: str):
-  return db.query(models.Option).filter(models.Option.id == option_id).first()
-
-def get_option(db: Session, option:schemas.Option):
-  return db.query(models.Option).filter(
-    models.Option.ticker == option.ticker.upper(), 
-    models.Option.strike_price == option.strike_price, 
-    models.Option.expire_date == option.expire_date,
-    models.Option.type == option.type
-  ).first()
-
-def update_option(db:Session, option: schemas.Option_Details):
-  # check if existing in database 
-  existing_option = get_option_by_id(db, option.id)
+def update_option(db:Session, option: schemas.Option_Details) -> schemas.Option_Details:
+  """
+  Update or insert an option into the database.
+  Args:
+    db: SQLAlchemy database session.
+    option: Option data to be inserted or updated.
+  """
+  existing_option = repository.get_option_by_id(db, option.id)   # check if existing in database 
   if not existing_option:
-    db.add(option)
-    db.commit()
-    db.refresh(option)
-    return option
+    db_option = models.Option(**option.model_dump(exclude_unset=True)) # create new option orm object
+    db_option = repository.create_option(db, db_option)
+    return schemas.Option_Details.model_validate(db_option) # validate the orm object
   else: # update if existing 
-    for attr, value in option.model_dump(exclude_unset=True).items():
-      if value and getattr(existing_option, attr) != value: # check if new value is not empty and not the same as existing ones 
+    for attr, value in option.model_dump(exclude_unset=True).items(): # loop through all attributes of the option
+      if value and value != getattr(existing_option, attr): # check if the new value is not empty and not the same as existing ones 
         setattr(existing_option, attr, value)
-    db.commit()
-    return existing_option
+    db_option = repository.update_option(db, existing_option)
+    return schemas.Option_Details.model_validate(db_option)
 
-def get_option_price(db: Session, option: schemas.Option):
-  existing_option = get_option(db, option)
-  if not existing_option:
+def get_option_price(db: Session, option: schemas.Option) -> schemas.Option_Details | None:
+  """
+  Retrieve the latest option price for a given option. If the option data is not in the database, fetches the latest price using yfinance
+  Args:
+    db (session): SQLAlchemy database session used for querying and updating the option.
+    option (schemas.Option): The option details including ticker, type, expire_date, and strike_price.
+  """
+  db_option = models.Option(
+    ticker=option.ticker.upper(),
+    type=option.type.value,
+    expire_date=option.expire_date,
+    strike_price=option.strike_price
+  ) # 
+  existing_option = repository.get_option(db, db_option) 
+  if not existing_option: # doesn't exist in the database, fetch from yfinance
     data = yf.Ticker(option.ticker) 
     try: 
-      option_chain_data = data.option_chain(str(option.expire_date))
+      option_chain_data = data.option_chain(str(option.expire_date.date()))
       if option.type == "Call":
         options_chain = option_chain_data.calls 
       else:
         options_chain = option_chain_data.puts 
-      option_data = options_chain[options_chain['strike'] == option.strike_price]
+      option_data = options_chain[options_chain['strike'] == option.strike_price] # get the exact one 
       if option_data.shape[0] != 0:
         db_option = models.Option(
                 id=option_data['contractSymbol'].values[0],
@@ -247,14 +273,15 @@ def get_option_price(db: Session, option: schemas.Option):
                 iv=option_data['impliedVolatility'].values[0],
                 itm=option_data['inTheMoney'].values[0]
             )
-        existing_option = update_option(db, db_option)
+        db_option = repository.create_option(db, db_option)
+        return schemas.Option_Details.model_validate(existing_option)
       else:
-        return None 
-      return db_option 
+        return None # no data found for the given strike price
     except Exception as error:
       raise error 
-  return existing_option
+  return schemas.Option_Details.model_validate(existing_option)
 
+# todo
 # run cron jobs to update all tickers + options every weekday at 10 pm (expired options should be removed from database)
 # check if ticker has connections to postion, otherwise remove them 
 def update_all_tickers(db: Session, batch_size: int = 100):

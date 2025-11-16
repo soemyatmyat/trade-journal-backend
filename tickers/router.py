@@ -3,22 +3,23 @@ from database import get_db
 from sqlalchemy.orm import Session 
 from datetime import datetime, date, timedelta
 from typing import Optional
-from redis_client import get_redis_client 
 import redis
-
-from . import schemas, service
-
+from redis_client import get_redis_client 
+from . import schemas, service, exceptions
 router = APIRouter() 
 
-@router.get("/{ticker_id}", response_model=schemas.Ticker, tags=["tickers"])
-async def get_closed_price(ticker_id: str, db: Session=Depends(get_db)):
-  existing_ticker = service.get_closed_price(db, ticker_id)
-  if not existing_ticker:
-    raise HTTPException(status_code=404, detail="No data found, symbol may be delisted.")
-  return existing_ticker 
+@router.get("/{ticker}", response_model=schemas.Ticker, tags=["tickers"])
+async def get_closed_price(ticker: str, db: Session=Depends(get_db)) -> schemas.Ticker:
+  try: 
+    existing_ticker = service.get_closed_price(db, ticker)
+    if not existing_ticker:
+      raise exceptions.TickerNotFoundException(ticker)
+  except Exception as error:
+    raise HTTPException(status_code=404, detail=str(error))
+  return existing_ticker
 
 @router.post("/options/", response_model=schemas.Option_Details, tags=["tickers"])
-async def get_option(option: schemas.Option, db: Session=Depends(get_db)):
+async def get_option(option: schemas.Option, db: Session=Depends(get_db)) -> schemas.Option_Details:
   try: 
     existing_option = service.get_option_price(db, option)
     if not existing_option:
@@ -38,8 +39,8 @@ async def get_price_history(
 ):
   # frequency check 
   allowed_historical_frequencies = ['W', 'D', 'M'] # this needs to go into utils
-  if frequency.upper() not in allowed_historical_frequencies:
-    raise HTTPException(status_code=400, detail="Frequency must be one of 'W' (weekly), 'D' (daily), 'M' (monthly).")
+  if frequency and frequency.upper() not in allowed_historical_frequencies:
+    raise exceptions.InvalidFrequencyException(frequency)
 
   # from_date and to_date check
   if from_date and to_date and from_date > to_date: 
