@@ -1,4 +1,3 @@
-from wsgiref.simple_server import demo_app
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from . import models, schema, repository # get sql models, Pydantic schema, Repository functions

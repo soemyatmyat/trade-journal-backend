@@ -4,13 +4,13 @@ from typing import Annotated
 import settings
 from database import get_db 
 from sqlalchemy.orm import Session 
-from . import auth, service, schema
+from . import jwt, service, schema
 
 router = APIRouter() # need to import this to main.py
 refresh_tokens_store = {}  # {refresh_token: user_id} -- in-memory store for refresh tokens, but it should be cached in redis
 
 def set_csrf_token_cookie(response: Response):
-  csrf_token = auth.create_token()  # Generate a new CSRF token
+  csrf_token = jwt.create_token()  # Generate a new CSRF token
   response.set_cookie(
     key="csrf_token",
     value=csrf_token,
@@ -23,7 +23,7 @@ def set_csrf_token_cookie(response: Response):
   )
 
 def set_refresh_token_cookie(user, response: Response, refresh_token: str):
-  refresh_token = auth.create_token()
+  refresh_token = jwt.create_token()
   refresh_tokens_store[refresh_token] = user.id  # Store the refresh token in memory (or use a more persistent store like Redis)
   response.set_cookie(
     key="refresh_token",
@@ -64,7 +64,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], resp
     )
   
   # create access token with sub as user email and expire in 15 mins
-  access_token = auth.create_access_token(data={"sub": user.email})
+  access_token = jwt.create_access_token(data={"sub": user.email})
 
   # Set the new csrf token as a NonHttpOnly, Secure cookie in the response
   set_csrf_token_cookie(response)
@@ -106,7 +106,7 @@ async def refresh_token(
     )
   
   #scopes = ["read", "write", "admin"] if user.role == "super_admin" else ["read"]
-  access_token = auth.create_access_token(data={"sub": user.email}) 
+  access_token = jwt.create_access_token(data={"sub": user.email}) 
 
   # Set the new csrf token as a NonHttpOnly, Secure cookie
   set_csrf_token_cookie(response)
@@ -119,14 +119,14 @@ async def refresh_token(
 @router.post("/logout", include_in_schema=False) 
 async def logout(token: str = Depends(service.oauth2_scheme)):
   # revoke the token access (it will expire by default in 15 mins anyway)
-  token_data=auth.decode_access_token(token)
+  token_data=jwt.decode_access_token(token)
   if token_data is None:
     raise HTTPException(
       status_code=status.HTTP_401_UNAUTHORIZED,
       detail="Could not validate credentials",
       headers={"WWW-Authenticate": "Bearer"},
     )
-  auth.revoke_token(token)
+  jwt.revoke_token(token)
 
 '''
 token validaition is taken care of by oauth2_scheme for invalid token or expired token. otherwise, would need to do this 
@@ -149,7 +149,7 @@ Authorization: Bearer <token>
 async def get_current_user(token: Annotated[str, Depends(service.oauth2_scheme)], db: Session=Depends(get_db)):
   # print(f"Token received for get_current_user: {token}")
   try:
-    token_data=auth.decode_access_token(token)
+    token_data=jwt.decode_access_token(token)
     if token_data is None:
       raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

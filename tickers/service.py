@@ -111,7 +111,9 @@ def get_put_call_vol_ratio(ticker: str) -> float:
   options = data.options # list of expiration dates expected in 'YYYY-MM-DD' format, ex: ['2023-10-20', '2023-10-27', ...]
 
   with ThreadPoolExecutor() as executor: # use ThreadPoolExecutor for concurrent fetching
-    chains = list(executor.map(get_chain, options)) # fetch all option chains concurrently
+    futures = [executor.submit(get_chain, data, exp) for exp in options]
+    chains = [f.result() for f in futures]
+    # chains = list(executor.map(get_chain, options)) # fetch all option chains concurrently
   
   total_put_volume = sum(chain.puts["volume"].sum() for chain in chains)
   total_call_volume = sum(chain.calls["volume"].sum() for chain in chains)
@@ -167,7 +169,7 @@ def get_metrics(ticker: str, redis_client: redis.Redis) -> dict:
       earnings_dates.drop(earnings_dates.index[0], inplace=True) # remove the upcoming earnings date from the history
     earnings_dates = earnings_dates.reset_index()  # move index to column
     earnings_dates = earnings_dates.dropna(subset=["EPS Estimate", "Reported EPS", "Surprise(%)"]) # drop rows with NaN values in any of the specified columns # todo: this is hardcoded, need to make it dynamic
-    if earnings_dates['Earnings Date']: # we manipulate the 'Earnings Date' column to convert to UTC ISO 8601 format directly in the dataframe 
+    if not earnings_dates['Earnings Date'].empty: # we manipulate the 'Earnings Date' column to convert to UTC ISO 8601 format directly in the dataframe 
       earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].dt.tz_convert('UTC').dt.strftime('%Y-%m-%dT%H:%M:%S%z')
       earnings_dates['Earnings Date'] = earnings_dates['Earnings Date'].str.replace(r'(\d{2})(\d{2})$', r'\1:\2', regex=True) # add colon to timezone offset
     earnings_hist = earnings_dates.to_dict(orient="records") # Convert DataFrame to list of dicts # 4. Earnings History
