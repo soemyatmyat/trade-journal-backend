@@ -40,11 +40,7 @@ async def add_position(position: schemas.Position, current_user: user_schema.Use
 # READ ALL
 @router.get("/", response_model=list[schemas.Position], tags=["positions"])
 async def retrieve_positions(current_user: user_schema.UserId = Depends(get_current_user),db: Session=Depends(get_db)):
-  print("hello from retrieve positions")
   positions = service.retrieve_positions(db, current_user.id) # limit and offset incorporated.
-  print("Retrieve positions: ")
-  for p in positions:
-      print(str(p))
   return [schemas.Position.model_validate(p) for p in positions] 
 
 # READ 

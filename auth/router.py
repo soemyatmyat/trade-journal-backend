@@ -9,30 +9,32 @@ from . import jwt, service, schema
 router = APIRouter() # need to import this to main.py
 refresh_tokens_store = {}  # {refresh_token: user_id} -- in-memory store for refresh tokens, but it should be cached in redis
 
-def set_csrf_token_cookie(response: Response):
-  csrf_token = jwt.create_token()  # Generate a new CSRF token
+def set_csrf_token_cookie(response: Response, csrf_token: str, max_age: int=7 * 24 * 60 * 60):
+  if not csrf_token:
+    csrf_token = jwt.create_token()  # Generate a new CSRF token
   response.set_cookie(
     key="csrf_token",
     value=csrf_token,
-    max_age=7 * 24 * 60 * 60,  # 7 days
+    max_age=max_age,  # 7 days
     path="/",  # Set the path to root so it is sent with every request
-    domain=settings.COOKIE_DOMAIN,  # Set the domain to the same as the app
+    # domain=settings.COOKIE_DOMAIN,  # Set the domain to the same as the app
     secure=settings.COOKIE_SECURE,
     httponly=False,
-    samesite="None"
+    samesite="none"
   )
 
-def set_refresh_token_cookie(user, response: Response, refresh_token: str):
-  refresh_token = jwt.create_token()
-  refresh_tokens_store[refresh_token] = user.id  # Store the refresh token in memory (or use a more persistent store like Redis)
+def set_refresh_token_cookie(user, response: Response, refresh_token: str, max_age: int=7 * 24 * 60 * 60):
+  if not refresh_token:
+    refresh_token = jwt.create_token()
+    refresh_tokens_store[refresh_token] = user.id  # Store the refresh token in memory (or use a more persistent store like Redis)
   response.set_cookie(
     key="refresh_token",
     value=refresh_token,
-    max_age=7 * 24 * 60 * 60,  # 7 days
+    max_age=max_age,  # default: 7 days
     path="/",  # Set the path to root so it is sent with every request
     secure=settings.COOKIE_SECURE,
     httponly=True,
-    samesite="None"
+    samesite="none"
   )
 
 @router.post("/register", tags=["users"], include_in_schema=False)
@@ -67,7 +69,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], resp
   access_token = jwt.create_access_token(data={"sub": user.email})
 
   # Set the new csrf token as a NonHttpOnly, Secure cookie in the response
-  set_csrf_token_cookie(response)
+  set_csrf_token_cookie(response,"")
   # Set the new refresh token as an HttpOnly, Secure cookie in the response
   set_refresh_token_cookie(user, response, "")
   # return access token and token type
@@ -109,15 +111,21 @@ async def refresh_token(
   access_token = jwt.create_access_token(data={"sub": user.email}) 
 
   # Set the new csrf token as a NonHttpOnly, Secure cookie
-  set_csrf_token_cookie(response)
+  set_csrf_token_cookie(response, "")
   # Set the new refresh token as an HttpOnly, Secure cookie
   del refresh_tokens_store[refresh_token]
-  set_refresh_token_cookie(user, response, refresh_token)
+  set_refresh_token_cookie(user, response, "")
   # return access token and token type
   return schema.Token(access_token=access_token, token_type="bearer") 
 
 @router.post("/logout", include_in_schema=False) 
-async def logout(token: str = Depends(service.oauth2_scheme)):
+async def logout(
+  response: Response, 
+  db: Session=Depends(get_db),
+  token: str = Depends(service.oauth2_scheme), 
+  refresh_token: str = Cookie(None), 
+  csrf_cookie: str = Cookie(None, alias="csrf_token"),
+  csrf_header: str = Header(None, alias="X-CSRF-TOKEN")):
   # revoke the token access (it will expire by default in 15 mins anyway)
   token_data=jwt.decode_access_token(token)
   if token_data is None:
@@ -126,7 +134,12 @@ async def logout(token: str = Depends(service.oauth2_scheme)):
       detail="Could not validate credentials",
       headers={"WWW-Authenticate": "Bearer"},
     )
+  
   jwt.revoke_token(token)
+  # Expire the refresh token cookie
+  set_refresh_token_cookie(None, response, refresh_token, max_age=0)
+  # Expire the csrf token cookie
+  set_csrf_token_cookie(response, csrf_cookie, max_age=0)
 
 '''
 token validaition is taken care of by oauth2_scheme for invalid token or expired token. otherwise, would need to do this 
