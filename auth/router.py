@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Response, Depends, HTTPException, status, Cookie, Header 
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
@@ -5,9 +6,11 @@ import settings
 from database import get_db 
 from sqlalchemy.orm import Session 
 from . import jwt, service, schema
+import redis
+from redis_client import get_redis_client 
 
 router = APIRouter() # need to import this to main.py
-refresh_tokens_store = {}  # {refresh_token: user_id} -- in-memory store for refresh tokens, but it should be cached in redis
+refresh_tokens_store = {}  # {refresh_token: user_id} -- in-memory store for refresh tokens when Redis is not available
 
 def set_csrf_token_cookie(response: Response, csrf_token: str, max_age: int=7 * 24 * 60 * 60):
   if not csrf_token:
@@ -23,10 +26,17 @@ def set_csrf_token_cookie(response: Response, csrf_token: str, max_age: int=7 * 
     samesite="none"
   )
 
-def set_refresh_token_cookie(user, response: Response, refresh_token: str, max_age: int=7 * 24 * 60 * 60):
+def set_refresh_token_cookie(user, response: Response, refresh_token: str, redis_client: redis.Redis = None, max_age: int=7 * 24 * 60 * 60):
   if not refresh_token:
     refresh_token = jwt.create_token()
-    refresh_tokens_store[refresh_token] = user.id  # Store the refresh token in memory (or use a more persistent store like Redis)
+    try:
+      if (redis_client is not None and redis_client.ping()):
+        # cache the data in Redis with key: refersh_token to the value as user_id, max_age expiration, nx = True to overwrite the existing cache if exists
+        redis_client.set(refresh_token, user.id, ex=max_age, nx=True)
+    except redis.exceptions.ConnectionError as e:
+      refresh_tokens_store[refresh_token] = user.id  # Store the refresh token in memory (or use a more persistent store like Redis)
+      print("error: Could not connect to Redis: ", e)
+
   response.set_cookie(
     key="refresh_token",
     value=refresh_token,
@@ -49,7 +59,7 @@ async def register_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends(
     )
 
 @router.post("/token", response_model=schema.Token, tags=["users"], include_in_schema=True) # return bearer token
-async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], response: Response, db: Session=Depends(get_db)) -> schema.Token:
+async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], response: Response, db: Session=Depends(get_db), redis_client: redis.Redis = Depends(get_redis_client)) -> schema.Token:
   '''
   this function will be called for authentication, when the user login with username and password
   the username and password will be passed to the form_data
@@ -71,7 +81,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], resp
   # Set the new csrf token as a NonHttpOnly, Secure cookie in the response
   set_csrf_token_cookie(response,"")
   # Set the new refresh token as an HttpOnly, Secure cookie in the response
-  set_refresh_token_cookie(user, response, "")
+  set_refresh_token_cookie(user, response, "", redis_client)
   # return access token and token type
   return schema.Token(access_token=access_token, token_type="bearer") # return token
 
@@ -80,6 +90,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], resp
 async def refresh_token(
   response: Response, 
   db: Session=Depends(get_db),
+  redis_client: redis.Redis = Depends(get_redis_client),
   refresh_token: str = Cookie(None),
   csrf_cookie: str = Cookie(None, alias="csrf_token"),
   csrf_header: str = Header(None, alias="X-CSRF-TOKEN")
@@ -92,8 +103,14 @@ async def refresh_token(
       detail="CSRF token mismatch"
     )
   
-  # in-memory store for refresh tokens, but it should be cached in redis
+  # fall back to in-memory store for refresh tokens, otherwise redis 
   user_id = refresh_tokens_store.get(refresh_token)
+  try:
+    if (redis_client.ping()):
+      user_id = redis_client.get(refresh_token)
+  except redis.exceptions.ConnectionError as e:
+    print("error: Could not connect to Redis: ", e)
+
   if not user_id:
     raise HTTPException(
       status_code=status.HTTP_401_UNAUTHORIZED,
@@ -114,7 +131,12 @@ async def refresh_token(
   set_csrf_token_cookie(response, "")
   # Set the new refresh token as an HttpOnly, Secure cookie
   del refresh_tokens_store[refresh_token]
-  set_refresh_token_cookie(user, response, "")
+  try:
+    if (redis_client.ping()):
+      redis_client.delete(refresh_token)
+  except redis.exceptions.ConnectionError as e:
+    print("error: Could not connect to Redis: ", e)
+  set_refresh_token_cookie(user, response, "", redis_client)
   # return access token and token type
   return schema.Token(access_token=access_token, token_type="bearer") 
 
@@ -122,6 +144,7 @@ async def refresh_token(
 async def logout(
   response: Response, 
   db: Session=Depends(get_db),
+  redis_client: redis.Redis = Depends(get_redis_client),
   token: str = Depends(service.oauth2_scheme), 
   refresh_token: str = Cookie(None), 
   csrf_cookie: str = Cookie(None, alias="csrf_token"),
@@ -137,7 +160,7 @@ async def logout(
   
   jwt.revoke_token(token)
   # Expire the refresh token cookie
-  set_refresh_token_cookie(None, response, refresh_token, max_age=0)
+  set_refresh_token_cookie(None, response, refresh_token, redis_client, max_age=0)
   # Expire the csrf token cookie
   set_csrf_token_cookie(response, csrf_cookie, max_age=0)
 
