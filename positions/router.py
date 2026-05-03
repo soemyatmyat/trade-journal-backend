@@ -11,31 +11,33 @@ router = APIRouter()
 
 # Create
 @router.post("/", response_model=schemas.Position, tags=["positions"])
-async def add_position(position: schemas.Position, current_user: user_schema.UserId = Depends(get_current_user), db: Session=Depends(get_db)) -> schemas.Position | None:
-  try:
-    ticker = tickers_service.get_closed_price(db, position.ticker)
-    if not ticker:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found, symbol may be delisted.")
-      
-    if (position.category.lower == 'put' or position.category == 'call'): # option position validation
-      if position.close_date is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Option positions must have an expire date.")
-      if position.category.lower == 'call' and position.trade_price < 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Call option strike price must be non-negative.")
-      if position.category.lower == 'put' and position.trade_price <= 0:  
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Put option strike price must be positive.")
-      
-      # check if option exists in db
-      option = tickers_service.get_option_price(db, tickers_schemas.Option(ticker=position.ticker, type=position.category.lower, expire_date=position.close_date, strike_price=position.trade_price))
-      if not option:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found, strike price may not be correct.")
-
-    # pass validation check, move it along to service
-    position = schemas.Position_Create(**position.model_dump(), owner_id=current_user.id)  
+def add_position(position: schemas.Position, current_user: user_schema.UserId = Depends(get_current_user), db: Session=Depends(get_db)) -> schemas.Position | None:
+  ticker = tickers_service.get_closed_price(db, position.ticker)
+  if not ticker:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found, symbol may be delisted.")
+    
+  if position.category.lower() in ("put", "call"): # option position validation
+    if position.close_date is None:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Option positions must have an expire date.")
+    if position.category.lower == 'call' and position.trade_price < 0:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Call option strike price must be non-negative.")
+    if position.category.lower == 'put' and position.trade_price <= 0:  
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Put option strike price must be positive.")
+    
+    # check if option exists in db
+    option = tickers_service.get_option_price(db, tickers_schemas.Option(ticker=position.ticker, type=tickers_schemas.OptionType(position.category), expire_date=position.close_date, strike_price=position.trade_price))
+    if not option:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found, strike price may not be correct.")
+    else: 
+      print("Option found in DB:", option)
+      position = schemas.Position_Create(**position.model_dump(), owner_id=current_user.id)  
+      new_position = service.create_position(db, position)
+  else: # stock position
+    print("Creating stock position")
+    position = schemas.Position_Create(**position.model_dump(), owner_id=current_user.id)
     new_position = service.create_position(db, position)
-    return new_position
-  except Exception as error:
-    raise HTTPException(status_code=404, detail=str(error))
+
+  return new_position
 
 # READ ALL
 @router.get("/", response_model=list[schemas.Position], tags=["positions"])
@@ -43,33 +45,41 @@ async def retrieve_positions(current_user: user_schema.UserId = Depends(get_curr
   positions = service.retrieve_positions(db, current_user.id) # limit and offset incorporated.
   return [schemas.Position.model_validate(p) for p in positions] 
 
-# READ 
+# READ
 @router.get("/{position_id}", response_model=schemas.Position, tags=["positions"])
 async def retrieve_a_position(position_id: int, current_user: user_schema.UserId = Depends(get_current_user),db: Session=Depends(get_db)):
-    position = service.get_position_by_id(db, position_id)
-    if position is None:
-        raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
-    return service.orm_to_pydantic(position)
+  position = service.get_position(db, position_id)
+  if position is None:
+    raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
+  if position.owner_id != current_user.id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this position.")
+  return schemas.Position.model_validate(position)
 
 # UPDATE
 @router.put("/{position_id}", response_model=schemas.Position, tags=["positions"])
 async def update_position(position_id: int, update_position: schemas.Position, current_user: user_schema.UserId = Depends(get_current_user),db: Session=Depends(get_db)):
-    ticker = tickers_service.get_closed_price(db, position.ticker)
-    if not ticker: 
-      raise HTTPException(status_code=404, detail="No data found, symbol may be delisted.")
-    
-    position = service.update_position_by_id(db, position_id, update_position)
-    if position is None:
-        raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
-    
-    
-    return service.orm_to_pydantic(position)
+  position = service.get_position(db, position_id)
+  if position is None:
+    raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
+  if position.owner_id != current_user.id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this position.")
+  ticker = tickers_service.get_closed_price(db, position.ticker)
+  if not ticker:
+    raise HTTPException(status_code=404, detail="No data found, symbol may be delisted.")
 
-# DELETE 
+  position = service.update_position(db, position_id, update_position)
+  if position is None:
+    raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
+  return schemas.Position.model_validate(position)
+
+# DELETE
 @router.delete("/{position_id}", status_code=204, tags=["positions"])
 async def remove_position(position_id: int, current_user: user_schema.UserId = Depends(get_current_user),db: Session=Depends(get_db)):
-  existing_position = service.remove_position(db, position_id)
+  existing_position = service.get_position(db, position_id)
   if existing_position is None:
     raise HTTPException(status_code=404, detail="No data found, id may be invalid.")
+  if existing_position.owner_id != current_user.id:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this position.")
+  service.remove_position(db, position_id)
   return None
 

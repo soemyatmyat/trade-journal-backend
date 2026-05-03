@@ -276,7 +276,7 @@ def get_option_price(db: Session, option: schemas.Option) -> schemas.Option_Deta
                 itm=option_data['inTheMoney'].values[0]
             )
         db_option = repository.create_option(db, db_option)
-        return schemas.Option_Details.model_validate(existing_option)
+        return schemas.Option_Details.model_validate(db_option)
       else:
         return None # no data found for the given strike price
     except Exception as error:

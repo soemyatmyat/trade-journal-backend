@@ -133,8 +133,6 @@ server/
 └── README
 ```
 
-
-
 ## References  
 This project follows: 
 1. 

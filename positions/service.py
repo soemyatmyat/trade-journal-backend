@@ -10,7 +10,7 @@ def get_position(db: Session, id: int):
   try:
     existing_position = repository.get_position_by_id(db, id)
     if existing_position:
-      return schemas.Position.model_validate(existing_position)
+      return schemas.Position_Owner_Details.model_validate(existing_position)
     else:
       return None
   except Exception as e:
